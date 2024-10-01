@@ -8,14 +8,33 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var date = Date()
+    @State private var id = ""
+    @State private var title: String = ""
+    @State private var memo = ""
+    @State private var showEventEdit = false
+    
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        List {
+            DatePicker("date", selection: $date)
+            TextField("id", text: $id)
+            TextField("title", text: $title)
+            TextField("memo", text: $memo)
+            Button("Submit") {
+                submit()
+            }
         }
-        .padding()
+        .sheet(
+            isPresented: $showEventEdit,
+            onDismiss: {
+                print("dismiss")
+            },
+            content: {
+                
+            })
+    }
+    
+    private func submit() {
     }
 }
 
