@@ -9,9 +9,10 @@ import SwiftUI
 import EventKit
 
 struct ContentView: View {
-    private let repository = CalendarEventRepository()
+    private let useCase = DefaultCalendarEventUseCase(repository: .init(eventStore: .init()))
+    @State private var existing: CalendarEvent?
+    
     @State private var startDate = Date()
-    @State private var endDate = Date().addingTimeInterval(60 * 30)
     @State private var id = ""
     @State private var title = ""
     @State private var memo = ""
@@ -20,49 +21,36 @@ struct ContentView: View {
     var body: some View {
         List {
             DatePicker("date", selection: $startDate)
-            DatePicker("date", selection: $endDate)
             TextField("id", text: $id)
             TextField("title", text: $title)
             TextField("memo", text: $memo)
-            Button("Save") {
+            Button("Sync") {
                 Task {
-                    await save()
-                    startDate = Date()
-                    endDate = Date().addingTimeInterval(60 * 30)
-                    id = ""
-                    title = ""
-                    memo = ""
-                }
-            }
-            Button("Remove") {
-                Task {
-                    await remove()
+                    do {
+                        try await sync()
+                    } catch {
+                        print(error.localizedDescription)
+                    }
                 }
             }
         }
     }
     
-    private func save() async {
-        do {
-            let event = EKEvent(eventStore: repository.eventStore)
-            event.title = title
-            event.startDate = startDate
-            event.endDate = endDate
-            event.calendar = repository.eventStore.defaultCalendarForNewEvents
-            event.url = URL(string: "https://\(id)")
-            event.notes = memo
-            try await repository.addEvent(event)
-        } catch {
-            print(error)
+    private func sync() async throws {
+        let event = AnyCalendarEvent(
+            title: title,
+            startDate: startDate,
+            endDate: startDate.addingTimeInterval(60 * 30),
+            memo: memo,
+            url: URL(string: "http://\(id)")
+        )
+        
+        if existing?.url == event.url {
+            try await useCase.syncEvent(existingEvent: existing, newEvent: event)
+        } else {
+            try await useCase.syncEvent(newEvent: event)
         }
-    }
-    
-    private func remove() async {
-        do {
-            guard let target = try await repository.fetchEvent(identifier: id) else { return }
-        } catch {
-            print(error)
-        }
+        existing = event
     }
 }
 

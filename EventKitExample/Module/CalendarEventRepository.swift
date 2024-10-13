@@ -9,7 +9,10 @@ import Foundation
 import EventKit
 
 final class CalendarEventRepository {
-    let eventStore = EKEventStore()
+    private let eventStore: EKEventStore
+    init(eventStore: EKEventStore) {
+        self.eventStore = eventStore
+    }
 }
 
 // MARK: - 권한
@@ -22,15 +25,7 @@ extension CalendarEventRepository {
         }
     }
     
-    private func requestWriteOnlyAccess() async throws -> Bool {
-        if #available(iOS 17.0, *) {
-            return try await eventStore.requestWriteOnlyAccessToEvents()
-        } else {
-            return try await eventStore.requestAccess(to: .event)
-        }
-    }
-    
-    private func verifyFullAccessAuthorization() async throws -> Bool {
+    func verifyFullAccessAuthorization() async throws -> Bool {
         let status = EKEventStore.authorizationStatus(for: .event)
         switch status {
         case .notDetermined:
@@ -47,43 +42,38 @@ extension CalendarEventRepository {
             throw CalendarEventError.unknown
         }
     }
+}
+
+// MARK: - CRUD
+extension CalendarEventRepository {
+    func fetchEvent(_ event: CalendarEvent) -> EKEvent? {
+        guard let url = event.url else { return nil }
+        let predicate = eventStore.predicateForEvents(withStart: event.startDate, end: event.endDate, calendars: nil)
+        let events = eventStore.events(matching: predicate)
+        return events.first(where: { $0.url == url })
+    }
     
-    private func verifyWriteOnlyAccessAuthorization() async throws -> Bool {
-        let status = EKEventStore.authorizationStatus(for: .event)
-        switch status {
-        case .notDetermined:
-            return try await requestWriteOnlyAccess()
-        case .restricted:
-            throw CalendarEventError.restricted
-        case .denied:
-            throw CalendarEventError.denied
-        case .fullAccess, .writeOnly:
-            return true
-        @unknown default:
-            throw CalendarEventError.unknown
-        }
+    func createEvent(_ event: CalendarEvent) throws {
+        let calendarEvent = EKEvent(eventStore: eventStore)
+        calendarEvent.title = event.title
+        calendarEvent.startDate = event.startDate
+        calendarEvent.endDate = event.endDate
+        calendarEvent.url = event.url
+        calendarEvent.notes = event.memo
+        calendarEvent.calendar = eventStore.defaultCalendarForNewEvents
+//        let alarm = EKAlarm(relativeOffset: -60)
+//        calendarEvent.addAlarm(alarm)
+        try eventStore.save(calendarEvent, span: .thisEvent)
+    }
+    
+    func updateEvent(target: EKEvent, newEvent: CalendarEvent) throws {
+        target.title = newEvent.title
+        target.startDate = newEvent.startDate
+        target.endDate = newEvent.endDate
+        target.url = newEvent.url
+        target.notes = newEvent.memo
+        try eventStore.save(target, span: .futureEvents)
     }
 }
 
-extension CalendarEventRepository {
-    func fetchEvent(identifier: String) async throws -> EKEvent? {
-        guard try await verifyFullAccessAuthorization() else { return nil }
-        return eventStore.event(withIdentifier: identifier)
-    }
-    
-    func fetchEvents(in dateRange: DateInterval) async throws -> [EKEvent] {
-        guard try await verifyFullAccessAuthorization() else { return [] }
-        let predicate = eventStore.predicateForEvents(withStart: dateRange.start, end: dateRange.end, calendars: nil)
-        return eventStore.events(matching: predicate)
-    }
-    
-    func addEvent(_ event: EKEvent) async throws {
-        guard try await verifyWriteOnlyAccessAuthorization() else { return }
-        try eventStore.save(event, span: .futureEvents)
-    }
-    
-    func removeEvent(_ event: EKEvent) async throws {
-        guard try await verifyFullAccessAuthorization() else { return }
-        try eventStore.remove(event, span: .thisEvent)
-    }
-}
+extension CalendarEventRepository {}
